@@ -1,0 +1,97 @@
+# Instructions on how to obtain the data.
+Register for account at IPUMS USA, select the EDUC and STATEICP variables and extract with csv. Download the csv and unzip the file in terminal. Read the csv.
+
+
+# A brief overview of the ratio estimators approach.
+Used to scale up estimates for the total population in each state based on a known ratio. The ratio of doctoral degree holders to total respondents in California is used as a reference. Apply this ratio to other states to estimate their total populations based on the number of doctoral degree holders.
+
+In California: 516,430 doctoral degree holders and 391,171 total respondents, giving a ratio of 391171 / 516430 = 0.76
+
+
+# Your estimates and the actual number of respondents.
+Below in the table.
+
+# Some explanation of why you think they are different.
+Using ratio of one state to estimate all states is not a good method because every state differs in education and and population. This method assumes that the ratio of doctoral degree holders to the total population in California is representative of other states. Which leads to large discrepancies.
+
+
+
+
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+
+library(dplyr)
+library(readr)
+library(knitr)
+library(kableExtra)
+suppressPackageStartupMessages(library(dplyr))
+suppressWarnings(library(kableExtra))
+
+data_file <- "usa_00002.csv"
+data <- read_csv(data_file)
+
+names(data)
+
+if (!"EDUCD" %in% names(data)) {
+  stop("The variable EDUCD is not present in your data.")
+}
+
+unique_educd_values <- unique(data$EDUCD)
+print(unique_educd_values)
+
+doctoral_code <- 116
+
+doctoral_data <- data %>%
+  filter(EDUCD == doctoral_code)
+
+num_doctoral_observations <- nrow(doctoral_data)
+print(paste("Number of doctoral degree holders:", num_doctoral_observations))
+
+if (num_doctoral_observations == 0) {
+  stop("No observations found for the specified doctoral_code in EDUCD.")
+}
+
+data$PERWT <- as.numeric(data$PERWT)
+data$STATEICP <- as.numeric(data$STATEICP)
+
+doctoral_counts <- doctoral_data %>%
+  group_by(STATEICP) %>%
+  summarise(doctoral_count = sum(PERWT, na.rm = TRUE))
+
+total_counts <- data %>%
+  group_by(STATEICP) %>%
+  summarise(total_count = sum(PERWT, na.rm = TRUE))
+
+state_counts <- left_join(doctoral_counts, total_counts, by = "STATEICP")
+
+california_code <- 71
+california_data <- state_counts %>%
+  filter(STATEICP == california_code)
+
+D_CA <- california_data$doctoral_count
+T_CA <- 391171
+
+if (is.na(D_CA) || D_CA == 0) {
+  stop("D_CA is NA or zero, cannot calculate ratio R.")
+}
+
+R <- T_CA / D_CA
+
+state_counts <- state_counts %>%
+  mutate(estimated_total = doctoral_count * R,
+         difference = estimated_total - total_count)
+
+results_table <- state_counts %>%
+  select(STATEICP, doctoral_count, total_count, estimated_total, difference) %>%
+  arrange(STATEICP)
+
+# Render the table for Quarto documents (HTML or PDF)
+results_table %>%
+  mutate_at(vars(doctoral_count, total_count, estimated_total, difference), round) %>%
+  kable(format = "pipe", caption = "Comparison of Estimated and Actual Total Respondents by State") %>%
+  kable_styling(full_width = FALSE, position = "center")
+
+```
